@@ -13,11 +13,22 @@ URL_MARKETPLACEQUERY = r'https://marketplace.visualstudio.com/_apis/public/galle
 URL_MALICIOUS = r'https://az764295.vo.msecnd.net/extensions/marketplace.json'
 
 URLROOT = 'https://update.code.visualstudio.com'
-ARTIFACTS = '/artifacts/'
-ARTIFACTS_INSTALLERS = '/artifacts/installers'
-ARTIFACTS_EXTENSIONS = '/artifacts/extensions'
-ARTIFACT_RECOMMENDATION = '/artifacts/recommendations.json'
-ARTIFACT_MALICIOUS = '/artifacts/malicious.json'
+
+# Allow for taking directories from the environment
+if 'VSC_ARTIFACTS' in os.environ:
+    ARTIFACTS = os.environ['VSC_ARTIFACTS']
+else:
+    ARTIFACTS = '/artifacts/'
+
+ARTIFACTS_INSTALLERS = os.path.join(ARTIFACTS, 'installers')
+ARTIFACTS_EXTENSIONS = os.path.join(ARTIFACTS, 'extensions')
+ARTIFACT_RECOMMENDATION = os.path.join(ARTIFACTS, 'recommendations.json')
+ARTIFACT_MALICIOUS = os.path.join(ARTIFACTS, 'malicious.json')
+
+if 'VSC_GALLERY' in os.environ:
+    GALLERY = os.environ['VSC_GALLERY']
+else:
+    GALLERY = '/opt/vscoffline/vscgallery/'
 
 TIMEOUT = 12
 

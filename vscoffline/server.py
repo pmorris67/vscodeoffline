@@ -159,13 +159,20 @@ class VSCGallery(object):
 
     def process_loaded_extension(self, extension, extensiondir):
             name = extension['identity']
+            lastUpdated = extension['lastUpdated']
+            lastUpdatedPath = lastUpdated.replace(':','-').replace('.','-')
 
             # Repoint asset urls
-            asseturi = vsc.URLROOT + os.path.join(extensiondir, extension['versions'][0]['version'])
-            extension['versions'][0]['assetUri'] = asseturi
-            extension['versions'][0]['fallbackAssetUri'] = asseturi
-            for asset in extension['versions'][0]['files']:
-                asset['source'] = asseturi + '/' + asset['assetType']
+            for version in extension['versions']:
+                semver = version["version"]
+                platform = "default"
+                if "targetPlatform" in version:
+                    platform = version["targetPlatform"]
+                asseturi = vsc.URLROOT + os.path.join('/artifacts/extensions', lastUpdatedPath, platform)
+                version['assetUri'] = asseturi
+                version['fallbackAssetUri'] = asseturi
+                for asset in version['files']:
+                    asset['source'] = asseturi + '/' + asset['assetType']
 
             # Map statistics for later lookup
             stats = {
@@ -347,7 +354,7 @@ class VSCIndex(object):
 
     def on_get(self, req, resp):
         resp.content_type = 'text/html'
-        with open('/opt/vscoffline/vscgallery/content/index.html', 'r') as f:
+        with open(os.path.join(vsc.GALLERY, 'content/index.html'), 'r') as f:
             resp.body = f.read()
         resp.status = falcon.HTTP_200
 
@@ -362,21 +369,22 @@ class VSCDirectoryBrowse(object):
         if os.path.commonprefix((os.path.realpath(requested_path), self.root)) != self.root:
             resp.status = falcon.HTTP_403
             return
+        requested = os.path.relpath(requested_path, self.root)
         resp.content_type = 'text/html'
         # Load template and replace variables
-        with open('/opt/vscoffline/vscgallery/content/browse.html', 'r') as f:
+        with open(os.path.join(vsc.GALLERY, 'content/browse.html'), 'r') as f:
             resp.body = f.read()
-        resp.body = resp.body.replace('{PATH}', requested_path)
-        resp.body = resp.body.replace('{CONTENT}', self.simple_dir_browse_response(requested_path))
+        resp.body = resp.body.replace('{PATH}', requested)
+        resp.body = resp.body.replace('{CONTENT}', self.simple_dir_browse_response(requested_path, requested))
         resp.status = falcon.HTTP_200
 
-    def simple_dir_browse_response(self, path):
+    def simple_dir_browse_response(self, path, rel):
         response = ''
         for item in vsc.Utility.folders_in_folder(path):
-            response += f'd <a href="/browse?path={os.path.join(path, item)}">{item}</a><br />'
+            response += f'd <a href="/browse?path={os.path.join(rel, item)}">{item}</a><br />'
         for item in vsc.Utility.files_in_folder(path):
             if item != path:
-                response += f'f <a href="{os.path.join(self.root, path, item)}">{item}</a><br />'
+                response += f'f <a href=/artifacts/{os.path.join(rel, item)}>{item}</a><br />'
         return response
 
 class ArtifactChangedHandler(FileSystemEventHandler):
@@ -408,7 +416,7 @@ log.debug('Waiting for gallery cache to load')
 #vscgallery.loaded.wait()
 
 observer = PollingObserver()
-observer.schedule(ArtifactChangedHandler(vscgallery), '/artifacts/', recursive=False)
+observer.schedule(ArtifactChangedHandler(vscgallery), vsc.ARTIFACTS, recursive=False)
 observer.start()
 
 application = falcon.App(cors_enable=True)
@@ -419,7 +427,7 @@ application.add_route('/extensions/marketplace.json', VSCMalicious())
 application.add_route('/_apis/public/gallery/extensionquery', vscgallery)
 application.add_route('/browse', VSCDirectoryBrowse(vsc.ARTIFACTS))
 application.add_route('/', VSCIndex())
-application.add_static_route('/artifacts/', '/artifacts/')
+application.add_static_route('/artifacts/', vsc.ARTIFACTS)
 
 if __name__ == '__main__':
     httpd = simple_server.make_server('0.0.0.0', 5000, application)

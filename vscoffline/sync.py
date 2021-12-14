@@ -144,16 +144,20 @@ class VSCExtensionDefinition(object):
                 self.extensionId = raw['extensionId']
 
     def download_assets(self, destination):
-        availableassets = self._get_asset_types()
-        for availableasset in availableassets:
-            self._download_asset(destination, availableasset)        
+        for version in self.versions:
+            platform = "default"
+            if "targetPlatform" in version:
+                platform = version["targetPlatform"]
+            availableassets = list(filter(lambda asset: 'assetType' in asset and "source" in asset, version['files']))
+            for availableasset in availableassets:
+                self._download_asset(destination, availableasset, platform)
 
     def process_embedded_extensions(self, destination, mp):
         """
         Check an extension's Manifest for an extension pack (e.g. more extensions to download)
         """
         bonusextensions = []
-        manifestpath = os.path.join(destination, self.identity, self.version(), 'Microsoft.VisualStudio.Code.Manifest')
+        manifestpath = os.path.join(destination, self.identity, self.updated_path(), 'Microsoft.VisualStudio.Code.Manifest')
         manifest = vsc.Utility.load_json(manifestpath)    
         if manifest and 'extensionPack' in manifest:
             for extname in manifest['extensionPack']:
@@ -169,54 +173,41 @@ class VSCExtensionDefinition(object):
         # Save as latest 
         with open(os.path.join(destination, 'latest.json'), 'w') as outfile:
             json.dump(self, outfile, cls=vsc.MagicJsonEncoder, indent=4)
-        # Save in the version folder
-        with open(os.path.join(destination, self.version(), 'extension.json'), 'w') as outfile:
+        # Save in the lastUpdated folder
+        with open(os.path.join(destination, self.updated_path(), 'extension.json'), 'w') as outfile:
             json.dump(self, outfile, cls=vsc.MagicJsonEncoder, indent=4)
 
     def version(self):
-        if self.versions and len(self.versions) > 1:
+        independent = list(filter(lambda v : not "targetPlatform" in v, self.versions))
+        if self.versions and independent and len(independent) > 1:
             log.warning(f"version(). More than one version returned for {self.identity}. Unhandled.")
             return None
-        return self.versions[0]['version']
+        return independent[0]['version']
+
+    def updated_path(self):
+        path = self.lastUpdated.replace(':','-').replace('.','-')
+        return path
     
     def set_recommended(self):
         self.recommended = True
 
-    def _download_asset(self, destination, asset):
+    def _download_asset(self, destination, asset, platform):
         if not self.extensionId:
             log.warning('download_asset() cannot download update if the update definition has not been downloaded')
             return
-        destination = os.path.join(destination, self.identity, self.version())
-        url = self._get_asset_source(asset)
+        destination = os.path.join(destination, self.identity, self.updated_path(), platform)
+        url = asset["source"]
         if not url:
             log.warning('download_asset() cannot download update as asset url is missing')
             return
-        destfile = os.path.join(destination, f'{asset}')
+        assetType = asset["assetType"];
+        destfile = os.path.join(destination, f'{assetType}')
         create_tree(os.path.abspath(os.sep), (destfile,))
         if not os.path.exists(destfile):
-            log.debug(f'Downloading {self.identity} {asset} to {destfile}')
+            log.debug(f'Downloading {self.identity} {assetType} to {destfile}')
             result = self.session.get(url, allow_redirects=True, timeout=vsc.TIMEOUT)
             with open(destfile, 'wb') as dest:
                 dest.write(result.content)
-    
-    def _get_asset_types(self):
-        if self.versions and len(self.versions) > 1:
-            log.warning(f"_get_asset_types(). More than one version returned for {self.identity}. Unhandled.")
-            return []
-        assets = []
-        for asset in self.versions[0]['files']:
-           if 'assetType' in asset:
-               assets.append(asset['assetType'])
-        return assets
-
-    def _get_asset_source(self, name):
-        if self.versions and len(self.versions) > 1:
-            log.warning(f"_get_asset_source(). More than one version returned for {self.identity}. Unhandled.")
-            return None
-        for asset in self.versions[0]['files']:
-           if asset['assetType'] == name:
-               return asset['source']
-        return False
 
     def __repr__(self):
         strs = f"<{self.__class__.__name__}> {self.identity} ({self.extensionId}) - Version: {self.version()}"
@@ -261,8 +252,8 @@ class VSCMarketplace(object):
     def __init__(self, insider):
         self.insider = insider
 
-    def get_recommendations(self, destination):
-        recommendations = self.search_top_n(n=200)
+    def get_recommendations(self, destination, n):
+        recommendations = self.search_top_n(n)
         recommended_old = self.get_recommendations_old(destination)
 
         for extension in recommendations:
@@ -476,6 +467,7 @@ if __name__ == '__main__':
     parser.add_argument('--check-binaries', dest='checkbinaries', action='store_true', help='Check for updated binaries')
     parser.add_argument('--check-insider', dest='checkinsider', action='store_true', help='Check for updated insider binaries')
     parser.add_argument('--check-recommended-extensions', dest='checkextensions', action='store_true', help='Check for recommended extensions')
+    parser.add_argument('--max-recommended-extensions', dest='maxrecommendations', default=200, help='Specify number of recommended extensions')
     parser.add_argument('--check-specified-extensions', dest='checkspecified', action='store_true', help='Check for extensions in <artifacts>/specified.json')    
     parser.add_argument('--extension-name', dest='extensionname', help='Find a specific extension by name')
     parser.add_argument('--extension-search', dest='extensionsearch', help='Search for a set of extensions')    
@@ -570,7 +562,7 @@ if __name__ == '__main__':
         
         if config.checkextensions:
             log.info('Syncing VS Code Recommended Extensions')            
-            recommended = mp.get_recommendations(os.path.abspath(config.artifactdir))
+            recommended = mp.get_recommendations(os.path.abspath(config.artifactdir), config.maxrecommendations)
             for item in recommended:
                 log.debug(item)
                 extensions[item.identity] = item
