@@ -168,7 +168,7 @@ class VSCGallery(object):
                 platform = "default"
                 if "targetPlatform" in version:
                     platform = version["targetPlatform"]
-                asseturi = vsc.URLROOT + os.path.join('/artifacts/extensions', lastUpdatedPath, platform)
+                asseturi = vsc.URLROOT + os.path.join('/artifacts/extensions', name, lastUpdatedPath, platform)
                 version['assetUri'] = asseturi
                 version['fallbackAssetUri'] = asseturi
                 for asset in version['files']:
